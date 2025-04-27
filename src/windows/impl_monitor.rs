@@ -1,6 +1,6 @@
 use std::{mem, ptr, sync::mpsc::Receiver};
 
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use scopeguard::guard;
 use widestring::U16CString;
 use windows::{
@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    capture::capture_monitor,
+    capture::{capture_monitor, capture_monitor_rgb},
     impl_video_recorder::ImplVideoRecorder,
     utils::{get_monitor_config, get_process_is_dpi_awareness, load_library},
 };
@@ -304,6 +304,39 @@ impl ImplMonitor {
         let abs_y = monitor_y + y;
 
         capture_monitor(abs_x, abs_y, width as i32, height as i32)
+    }
+
+    pub fn capture_region_rgb(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> XCapResult<RgbImage> {
+        // Validate region bounds
+        let monitor_x = self.x()?;
+        let monitor_y = self.y()?;
+        let monitor_width = self.width()?;
+        let monitor_height = self.height()?;
+
+        if x < 0
+            || y < 0
+            || width > monitor_width
+            || height > monitor_height
+            || x as u32 + width > monitor_width
+            || y as u32 + height > monitor_height
+        {
+            return Err(XCapError::InvalidCaptureRegion(format!(
+                "Region ({}, {}, {}, {}) is outside monitor bounds ({}, {}, {}, {})",
+                x, y, width, height, monitor_x, monitor_y, monitor_width, monitor_height
+            )));
+        }
+
+        // Calculate absolute coordinates
+        let abs_x = monitor_x + x;
+        let abs_y = monitor_y + y;
+
+        capture_monitor_rgb(abs_x, abs_y, width as i32, height as i32)
     }
 
     pub fn video_recorder(&self) -> XCapResult<(ImplVideoRecorder, Receiver<Frame>)> {

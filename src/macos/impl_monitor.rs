@@ -1,6 +1,6 @@
 use std::sync::mpsc::Receiver;
 
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use objc2::MainThreadMarker;
 use objc2_app_kit::NSScreen;
 use objc2_core_foundation::CGPoint;
@@ -16,7 +16,10 @@ use crate::{
     video_recorder::Frame,
 };
 
-use super::{capture::capture, impl_video_recorder::ImplVideoRecorder};
+use super::{
+    capture::{capture, capture_rgb},
+    impl_video_recorder::ImplVideoRecorder,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplMonitor {
@@ -236,6 +239,49 @@ impl ImplMonitor {
             };
 
             capture(cg_rect, CGWindowListOption::OptionAll, 0)
+        }
+    }
+
+    pub fn capture_region_rgb(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> XCapResult<RgbImage> {
+        // Validate region bounds
+        let monitor_x = self.x()?;
+        let monitor_y = self.y()?;
+        let monitor_width = self.width()?;
+        let monitor_height = self.height()?;
+
+        if x < 0
+            || y < 0
+            || width > monitor_width
+            || height > monitor_height
+            || x as u32 + width > monitor_width
+            || y as u32 + height > monitor_height
+        {
+            return Err(XCapError::InvalidCaptureRegion(format!(
+                "Region ({}, {}, {}, {}) is outside monitor bounds ({}, {}, {}, {})",
+                x, y, width, height, monitor_x, monitor_y, monitor_width, monitor_height
+            )));
+        }
+
+        // Create a CGRect for the region to capture
+        unsafe {
+            let cg_rect = objc2_core_foundation::CGRect {
+                origin: objc2_core_foundation::CGPoint {
+                    x: (monitor_x + x) as f64,
+                    y: (monitor_y + y) as f64,
+                },
+                size: objc2_core_foundation::CGSize {
+                    width: width as f64,
+                    height: height as f64,
+                },
+            };
+
+            capture_rgb(cg_rect, CGWindowListOption::OptionAll, 0)
         }
     }
 

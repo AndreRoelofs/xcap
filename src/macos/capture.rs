@@ -1,4 +1,4 @@
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use objc2_core_foundation::CGRect;
 use objc2_core_graphics::{
     CGDataProviderCopyData, CGImageGetBytesPerRow, CGImageGetDataProvider, CGImageGetHeight,
@@ -43,5 +43,47 @@ pub fn capture(
 
         RgbaImage::from_raw(width as u32, height as u32, buffer)
             .ok_or_else(|| XCapError::new("RgbaImage::from_raw failed"))
+    }
+}
+
+pub fn capture_rgb(
+    cg_rect: CGRect,
+    list_option: CGWindowListOption,
+    window_id: CGWindowID,
+) -> XCapResult<RgbImage> {
+    unsafe {
+        let cg_image = CGWindowListCreateImage(
+            cg_rect,
+            list_option,
+            window_id,
+            CGWindowImageOption::Default,
+        );
+
+        let width = CGImageGetWidth(cg_image.as_deref());
+        let height = CGImageGetHeight(cg_image.as_deref());
+        let data_provider = CGImageGetDataProvider(cg_image.as_deref());
+        let data = CGDataProviderCopyData(data_provider.as_deref())
+            .ok_or_else(|| XCapError::new("Failed to copy data"))?
+            .to_vec();
+        let bytes_per_row = CGImageGetBytesPerRow(cg_image.as_deref());
+
+        // Some platforms e.g. MacOS can have extra bytes at the end of each row.
+        // See
+        // https://github.com/nashaofu/xcap/issues/29
+        // https://github.com/nashaofu/xcap/issues/38
+        let mut buffer = Vec::with_capacity(width * height * 3); // RGB requires 3 bytes per pixel
+
+        for row in data.chunks_exact(bytes_per_row) {
+            // Process each pixel in the row
+            for bgra in row[..width * 4].chunks_exact(4) {
+                // Convert BGRA to RGB (skipping alpha)
+                buffer.push(bgra[2]); // R (from B position in BGRA)
+                buffer.push(bgra[1]); // G (from G position in BGRA)
+                buffer.push(bgra[0]); // B (from R position in BGRA)
+            }
+        }
+
+        RgbImage::from_raw(width as u32, height as u32, buffer)
+            .ok_or_else(|| XCapError::new("RgbImage::from_raw failed"))
     }
 }

@@ -1,6 +1,6 @@
 use std::mem;
 
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use scopeguard::{guard, ScopeGuard};
 use widestring::U16CString;
 use windows::{
@@ -89,6 +89,25 @@ pub(super) fn bgra_to_rgba_image(
 ) -> XCapResult<RgbaImage> {
     RgbaImage::from_raw(width, height, bgra_to_rgba(buffer))
         .ok_or_else(|| XCapError::new("RgbaImage::from_raw failed"))
+}
+
+pub(super) fn bgra_to_rgb(buffer: Vec<u8>) -> Vec<u8> {
+    let is_old_version = get_os_major_version() < 8;
+    let mut rgb_buffer = Vec::with_capacity((buffer.len() / 4) * 3);
+
+    for chunk in buffer.chunks_exact(4) {
+        // BGRA -> RGB (skipping alpha)
+        rgb_buffer.push(chunk[2]); // R (from B position in BGRA)
+        rgb_buffer.push(chunk[1]); // G (from G position in BGRA)
+        rgb_buffer.push(chunk[0]); // B (from R position in BGRA)
+    }
+
+    rgb_buffer
+}
+
+pub(super) fn bgra_to_rgb_image(width: u32, height: u32, buffer: Vec<u8>) -> XCapResult<RgbImage> {
+    RgbImage::from_raw(width, height, bgra_to_rgb(buffer))
+        .ok_or_else(|| XCapError::new("RgbImage::from_raw failed"))
 }
 
 // 定义 GetProcessDpiAwareness 函数的类型

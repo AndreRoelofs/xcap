@@ -1,6 +1,6 @@
 use std::{ffi::c_void, mem};
 
-use image::{DynamicImage, RgbaImage};
+use image::{DynamicImage, RgbImage, RgbaImage};
 use scopeguard::guard;
 use windows::Win32::{
     Foundation::{GetLastError, HWND},
@@ -18,7 +18,7 @@ use windows::Win32::{
 
 use crate::error::{XCapError, XCapResult};
 
-use super::utils::{bgra_to_rgba_image, get_os_major_version, get_window_info};
+use super::utils::{bgra_to_rgb_image, bgra_to_rgba_image, get_os_major_version, get_window_info};
 
 fn to_rgba_image(
     hdc_mem: HDC,
@@ -61,6 +61,45 @@ fn to_rgba_image(
     };
 
     bgra_to_rgba_image(width as u32, height as u32, buffer)
+}
+
+fn to_rgb_image(hdc_mem: HDC, h_bitmap: HBITMAP, width: i32, height: i32) -> XCapResult<RgbImage> {
+    let buffer_size = width * height * 4; // Still need 4 bytes per pixel when reading
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biSizeImage: buffer_size as u32,
+            biCompression: 0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut buffer = vec![0u8; buffer_size as usize];
+
+    unsafe {
+        // Read data into buffer
+        let is_failed = GetDIBits(
+            hdc_mem,
+            h_bitmap,
+            0,
+            height as u32,
+            Some(buffer.as_mut_ptr().cast()),
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+        ) == 0;
+
+        if is_failed {
+            return Err(XCapError::new("Get RGB data failed"));
+        }
+    };
+
+    // Convert from BGRA to RGB (3 bytes per pixel)
+    bgra_to_rgb_image(width as u32, height as u32, buffer)
 }
 
 fn delete_bitmap_object(val: HBITMAP) {
@@ -118,6 +157,53 @@ pub fn capture_monitor(x: i32, y: i32, width: i32, height: i32) -> XCapResult<Rg
         )?;
 
         to_rgba_image(*scope_guard_mem, *scope_guard_h_bitmap, width, height)
+    }
+}
+
+/// Capture a region of the screen directly to RGB format (more efficient when alpha is not needed)
+#[allow(unused)]
+pub fn capture_monitor_rgb(x: i32, y: i32, width: i32, height: i32) -> XCapResult<RgbImage> {
+    unsafe {
+        let hwnd = GetDesktopWindow();
+        let scope_guard_hdc_desktop_window = guard(GetWindowDC(Some(hwnd)), |val| {
+            if ReleaseDC(Some(hwnd), val) != 1 {
+                log::error!("ReleaseDC({:?}) failed: {:?}", val, GetLastError());
+            }
+        });
+
+        // Create compatible memory DC
+        let scope_guard_mem = guard(
+            CreateCompatibleDC(Some(*scope_guard_hdc_desktop_window)),
+            |val| {
+                if !DeleteDC(val).as_bool() {
+                    log::error!("DeleteDC({:?}) failed: {:?}", val, GetLastError());
+                }
+            },
+        );
+
+        let scope_guard_h_bitmap = guard(
+            CreateCompatibleBitmap(*scope_guard_hdc_desktop_window, width, height),
+            delete_bitmap_object,
+        );
+
+        // Select bitmap into DC
+        SelectObject(*scope_guard_mem, (*scope_guard_h_bitmap).into());
+
+        // Copy screen to memory bitmap
+        BitBlt(
+            *scope_guard_mem,
+            0,
+            0,
+            width,
+            height,
+            Some(*scope_guard_hdc_desktop_window),
+            x,
+            y,
+            SRCCOPY,
+        )?;
+
+        // Convert to RGB image (skipping alpha channel)
+        to_rgb_image(*scope_guard_mem, *scope_guard_h_bitmap, width, height)
     }
 }
 
