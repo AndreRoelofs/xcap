@@ -1,4 +1,4 @@
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use xcb::{
     x::{
         Atom, Drawable, GetGeometry, GetProperty, GetPropertyReply, QueryPointer,
@@ -11,7 +11,7 @@ use xcb::{
 use crate::error::{XCapError, XCapResult};
 
 use super::{
-    capture::capture_window,
+    capture::{capture_window, capture_window_rgb},
     impl_monitor::ImplMonitor,
     utils::{get_atom, get_xcb_connection_and_index},
 };
@@ -327,5 +327,9 @@ impl ImplWindow {
 
     pub fn capture_image(&self) -> XCapResult<RgbaImage> {
         capture_window(self)
+    }
+
+    pub fn capture_image_rgb(&self) -> XCapResult<RgbImage> {
+        capture_window_rgb(self)
     }
 }

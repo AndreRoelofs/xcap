@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env::temp_dir, fmt::Debug, fs, sync::Mutex};
 
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 use scopeguard::defer;
 use zbus::{
     blocking::{Connection, Proxy},
@@ -12,7 +12,7 @@ use crate::{
     platform::utils::{get_zbus_portal_request, safe_uri_to_path, wait_zbus_response},
 };
 
-use super::utils::{get_zbus_connection, png_to_rgba_image};
+use super::utils::{get_zbus_connection, png_to_rgb_image, png_to_rgba_image};
 
 fn org_gnome_shell_screenshot(
     conn: &Connection,
@@ -47,6 +47,41 @@ fn org_gnome_shell_screenshot(
     let rgba_image = png_to_rgba_image(&filename, 0, 0, width, height)?;
 
     Ok(rgba_image)
+}
+
+fn org_gnome_shell_screenshot_rgb(
+    conn: &Connection,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> XCapResult<RgbImage> {
+    let proxy = Proxy::new(
+        conn,
+        "org.gnome.Shell.Screenshot",
+        "/org/gnome/Shell/Screenshot",
+        "org.gnome.Shell.Screenshot",
+    )?;
+
+    let filename = rand::random::<u32>();
+
+    let dirname = temp_dir().join("screenshot");
+    fs::create_dir_all(&dirname)?;
+
+    let mut path = dirname.join(filename.to_string());
+    path.set_extension("png");
+    defer!({
+        let _ = fs::remove_file(&path);
+    });
+
+    let filename = path.to_string_lossy().to_string();
+
+    // https://github.com/vinzenz/gnome-shell/blob/master/data/org.gnome.Shell.Screenshot.xml
+    proxy.call_method("ScreenshotArea", &(x, y, width, height, false, &filename))?;
+
+    let rgb_image = png_to_rgb_image(&filename, 0, 0, width, height)?;
+
+    Ok(rgb_image)
 }
 
 #[derive(DeserializeDict, Type, Debug)]
@@ -92,6 +127,42 @@ fn org_freedesktop_portal_screenshot(
     Ok(rgba_image)
 }
 
+fn org_freedesktop_portal_screenshot_rgb(
+    conn: &Connection,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> XCapResult<RgbImage> {
+    let proxy = Proxy::new(
+        conn,
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Screenshot",
+    )?;
+
+    let handle_token = rand::random::<u32>().to_string();
+    let portal_request = get_zbus_portal_request(conn, &handle_token)?;
+
+    let mut options: HashMap<&str, Value> = HashMap::new();
+    options.insert("handle_token", Value::from(&handle_token));
+    options.insert("modal", Value::from(true));
+    options.insert("interactive", Value::from(false));
+
+    // https://github.com/flatpak/xdg-desktop-portal/blob/main/data/org.freedesktop.portal.Screenshot.xml
+    proxy.call_method("Screenshot", &("", options))?;
+    let screenshot_response: ScreenshotResponse = wait_zbus_response(&portal_request)?;
+
+    let filename = safe_uri_to_path(&screenshot_response.uri)?;
+    defer!({
+        let _ = fs::remove_file(&filename);
+    });
+
+    let rgb_image = png_to_rgb_image(&filename, x, y, width, height)?;
+
+    Ok(rgb_image)
+}
+
 static DBUS_LOCK: Mutex<()> = Mutex::new(());
 
 fn wlroots_screenshot(
@@ -121,6 +192,30 @@ fn wlroots_screenshot(
     Ok(image)
 }
 
+fn wlroots_screenshot_rgb(
+    x_coordinate: i32,
+    y_coordinate: i32,
+    width: i32,
+    height: i32,
+) -> XCapResult<RgbImage> {
+    let wayshot_connection = libwayshot::WayshotConnection::new()?;
+    let capture_region = libwayshot::CaptureRegion {
+        x_coordinate,
+        y_coordinate,
+        width,
+        height,
+    };
+    let rgb_image = wayshot_connection.screenshot(capture_region, false)?;
+
+    // libwayshot returns image 0.24 RgbImage
+    // we need image 0.25 RgbImage
+    let image =
+        image::RgbImage::from_raw(rgb_image.width(), rgb_image.height(), rgb_image.into_raw())
+            .expect("Conversion of PNG -> Raw -> PNG does not fail");
+
+    Ok(image)
+}
+
 pub fn wayland_capture(x: i32, y: i32, width: i32, height: i32) -> XCapResult<RgbaImage> {
     let lock = DBUS_LOCK.lock();
 
@@ -140,6 +235,27 @@ pub fn wayland_capture(x: i32, y: i32, width: i32, height: i32) -> XCapResult<Rg
 
     res
 }
+
+pub fn wayland_capture_rgb(x: i32, y: i32, width: i32, height: i32) -> XCapResult<RgbImage> {
+    let lock = DBUS_LOCK.lock();
+
+    let conn = get_zbus_connection()?;
+    let res = org_gnome_shell_screenshot_rgb(conn, x, y, width as i32, height as i32)
+        .or_else(|e| {
+            log::debug!("org_gnome_shell_screenshot failed {}", e);
+
+            org_freedesktop_portal_screenshot_rgb(conn, x, y, width as i32, height as i32)
+        })
+        .or_else(|e| {
+            log::debug!("org_freedesktop_portal_screenshot failed {}", e);
+            wlroots_screenshot_rgb(x, y, width as i32, height as i32)
+        });
+
+    drop(lock);
+
+    res
+}
+
 #[test]
 fn screnshot_multithreaded() {
     fn make_screenshots() {

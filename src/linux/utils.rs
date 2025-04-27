@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use image::{open, RgbaImage};
+use image::{open, RgbImage, RgbaImage};
 use lazy_static::lazy_static;
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
@@ -119,6 +119,21 @@ where
     let mut dynamic_image = open(filename)?;
     dynamic_image = dynamic_image.crop(x as u32, y as u32, width as u32, height as u32);
     Ok(dynamic_image.to_rgba8())
+}
+
+pub(super) fn png_to_rgb_image<T>(
+    filename: T,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> XCapResult<RgbImage>
+where
+    T: AsRef<Path>,
+{
+    let mut dynamic_image = open(filename)?;
+    dynamic_image = dynamic_image.crop(x as u32, y as u32, width as u32, height as u32);
+    Ok(dynamic_image.to_rgb8())
 }
 
 /// uri 转换为 path

@@ -1,6 +1,6 @@
 use std::sync::mpsc::Receiver;
 
-use image::RgbaImage;
+use image::{RgbImage, RgbaImage};
 
 use crate::{
     error::XCapResult, platform::impl_monitor::ImplMonitor, video_recorder::Frame, VideoRecorder,
@@ -90,6 +90,16 @@ impl Monitor {
 
     pub fn capture_region(&self, x: i32, y: i32, width: u32, height: u32) -> XCapResult<RgbaImage> {
         self.impl_monitor.capture_region(x, y, width, height)
+    }
+
+    pub fn capture_region_rgb(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> XCapResult<RgbImage> {
+        self.impl_monitor.capture_region_rgb(x, y, width, height)
     }
 
     pub fn video_recorder(&self) -> XCapResult<(VideoRecorder, Receiver<Frame>)> {
