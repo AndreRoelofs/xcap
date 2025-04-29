@@ -46,19 +46,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         end
     );
 
-    // image_rgb
-    //     .save(format!(
-    //         "target/monitors/monitor-{}-region-rgb.png",
-    //         normalized(monitor.name().unwrap())
-    //     ))
-    //     .unwrap();
+    image_rgb
+        .save(format!(
+            "target/monitors/monitor-{}-region-rgb.png",
+            normalized(monitor.name().unwrap())
+        ))
+        .unwrap();
 
-    // image_rgba
-    //     .save(format!(
-    //         "target/monitors/monitor-{}-region-rgba.png",
-    //         normalized(monitor.name().unwrap())
-    //     ))
-    //     .unwrap();
+    image_rgba
+        .save(format!(
+            "target/monitors/monitor-{}-region-rgba.png",
+            normalized(monitor.name().unwrap())
+        ))
+        .unwrap();
 
     Ok(())
 }
